@@ -36,8 +36,6 @@
 #define ARPD_MAX_ACTIVE		600
 #define ARPD_MAX_INACTIVE	300
 
-#define PIDFILE			"/var/run/farpd.pid"
-
 static pcap_t			*arpd_pcap;
 static arp_t			*arpd_arp;
 static eth_t			*arpd_eth;
@@ -240,7 +238,6 @@ arpd_exit(int status)
 	pcap_close(arpd_pcap);
 	arp_close(arpd_arp);
 	closelog();
-	unlink(PIDFILE);
 
 	exit(status);
 }
@@ -386,7 +383,6 @@ main(int argc, char *argv[])
 	struct event recv_ev;
 	char *dev;
 	int c, debug, vlan_support;
-	FILE *fp;
 
 	dev = NULL;
 	debug = 0;
@@ -416,21 +412,13 @@ main(int argc, char *argv[])
 	else
 		arpd_init(dev, argc, argv, vlan_support);
 
-	if ((fp = fopen(PIDFILE, "w")) == NULL)
-		err(1, "fopen");
-
 	if (!debug) {
 		setlogmask(LOG_UPTO(LOG_INFO));
 
 		if (daemon(1, 0) < 0) {
-			unlink(PIDFILE);
 			err(1, "daemon");
 		}
 	}
-	fprintf(fp, "%d\n", getpid());
-	fclose(fp);
-
-	chmod(PIDFILE, 0644);
 
 	event_init();
 

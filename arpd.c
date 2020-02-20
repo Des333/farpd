@@ -205,6 +205,9 @@ arpd_init(char *dev, int naddresses, char **addresses)
 			err(1, "BIOCIMMEDIATE");
 	}
 #endif
+        pcap_freecode(&fcode);
+        intf_close(intf);
+
 	if ((arpd_eth = eth_open(dev)) == NULL)
 		errx(1, "eth_open");
 

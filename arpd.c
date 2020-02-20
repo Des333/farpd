@@ -207,7 +207,7 @@ arpd_init(char *dev, int naddresses, char **addresses, int vlan_support)
           filter = filter_with_novlan;
         }
 
-	if ((arpd_pcap = pcap_open_live(dev, 128, 0, 500, ebuf)) == NULL)
+	if ((arpd_pcap = pcap_open_live(dev, 128, 0, -1, ebuf)) == NULL)
 		errx(1, "pcap_open_live: %s", ebuf);
 
 	if (pcap_compile(arpd_pcap, &fcode, filter, 1, 0) < 0 ||

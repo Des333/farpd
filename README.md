@@ -6,14 +6,14 @@ This ARP daemon replies to any ARP request for a set of IP addresses with the ha
 ## Requirements
 On Debian sid:
 ```sh
-$ sudo apt-get install build-essential libdumpnet-dev libevent-dev libpcap-dev
+$ sudo apt-get install build-essential libdumbnet-dev libevent-dev libpcap-dev libbsd-dev
 ```
 
 ## Build
 On Debian sid:
 ```sh
-./configure --with-libdumbnet=/usr --with-libevent=/usr
-make
+$ ./configure --with-libdumbnet=/usr --with-libevent=/usr
+$ make
 ```
 
 ## Example
@@ -26,10 +26,10 @@ Usage: arpd [-d] [-q] [-i interface] [net]
 
 For listen and reply only to ARP-requests without VLAN-tags
 ```sh
-sudo ./arpd -d -i enp5s0f4 192.168.1.3 192.168.1.4
+$ sudo ./arpd -d -i enp5s0f4 192.168.1.3 192.168.1.4
 ```
 
 For listen and reply to ARP-requests with or without VLAN-tag
 ```sh
-sudo ./arpd -d -q -i enp5s0f4 192.168.1.3 192.168.1.4
+$ sudo ./arpd -d -q -i enp5s0f4 192.168.1.3 192.168.1.4
 ```

@@ -291,7 +291,7 @@ arpd_recv_cb(u_char *u, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
 	ethip = (struct arp_ethip *)(arp + 1);
 
 	addr_pack(&src.arp_ha, ADDR_TYPE_ETH, ETH_ADDR_BITS,
-	    ETH_ADDR_BROADCAST, ETH_ADDR_LEN);
+	    ethip->ar_sha, ETH_ADDR_LEN);
 	addr_pack(&src.arp_pa, ADDR_TYPE_IP, IP_ADDR_BITS,
 	    ethip->ar_spa, IP_ADDR_LEN);
 

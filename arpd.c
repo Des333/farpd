@@ -322,12 +322,6 @@ arpd_recv(int fd, short type, void *ev)
 		syslog(LOG_ERR, "pcap_dispatch: %s", pcap_geterr(arpd_pcap));
 }
 
-void
-terminate_handler(int sig)
-{
-	arpd_sig = sig;
-}
-
 int
 arpd_signal(void)
 {
@@ -335,6 +329,14 @@ arpd_signal(void)
 	arpd_exit(0);
 	/* NOTREACHED */
 	return (-1);
+}
+
+
+void
+terminate_handler(int sig)
+{
+	arpd_sig = sig;
+        arpd_signal();
 }
 
 int

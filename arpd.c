@@ -27,7 +27,7 @@
 #undef timeout_initialized
 
 #include <event.h>
-#include <dnet.h>
+#include <dumbnet.h>
 
 #define ARPD_MAX_ACTIVE		600
 #define ARPD_MAX_INACTIVE	300

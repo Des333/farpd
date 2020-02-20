@@ -30,6 +30,9 @@
 #include <event.h>
 #include <dumbnet.h>
 
+
+#define VLAN_TAG_LEN            4
+
 #define ARPD_MAX_ACTIVE		600
 #define ARPD_MAX_INACTIVE	300
 
@@ -44,7 +47,7 @@ static int			 arpd_sig;
 static void
 usage(void)
 {
-	fprintf(stderr, "Usage: arpd [-d] [-i interface] [net]\n");
+	fprintf(stderr, "Usage: arpd [-d] [-q] [-i interface] [net]\n");
 	exit(1);
 }
 
@@ -156,10 +159,12 @@ arpd_expandips(int naddresses, char **addresses)
 }
 
 static void
-arpd_init(char *dev, int naddresses, char **addresses)
+arpd_init(char *dev, int naddresses, char **addresses, int vlan_support)
 {
 	struct bpf_program fcode;
-	char filter[1024], ebuf[PCAP_ERRBUF_SIZE], *dst;
+	char filter_wo_novlan[1024], filter_with_novlan[2048];
+        char *filter;
+        char ebuf[PCAP_ERRBUF_SIZE], *dst;
 	intf_t *intf;
         pcap_if_t *interfaces;
 
@@ -188,9 +193,19 @@ arpd_init(char *dev, int naddresses, char **addresses)
 		errx(1, "bad interface configuration: not IP or Ethernet");
 	arpd_ifent.intf_addr.addr_bits = IP_ADDR_BITS;
 
-	snprintf(filter, sizeof(filter), "arp %s%s%s and not ether src %s",
+	snprintf(filter_wo_novlan, sizeof(filter_wo_novlan), "arp %s%s%s and not ether src %s",
 	    dst ? "and (" : "", dst ? dst : "", dst ? ")" : "",
 	    addr_ntoa(&arpd_ifent.intf_link_addr));
+
+        if (vlan_support) {
+          filter = filter_wo_novlan;
+        } else {
+          if( snprintf(filter_with_novlan, sizeof(filter_with_novlan),
+                "((%s) and not vlan)", filter_wo_novlan) < 0 ) {
+		err(1, "snprintf");
+          }
+          filter = filter_with_novlan;
+        }
 
 	if ((arpd_pcap = pcap_open_live(dev, 128, 0, 500, ebuf)) == NULL)
 		errx(1, "pcap_open_live: %s", ebuf);
@@ -233,13 +248,21 @@ arpd_exit(int status)
 static void
 arpd_send(eth_t *eth, int op,
     struct addr *sha, struct addr *spa,
-    struct addr *tha, struct addr *tpa)
+    struct addr *tha, struct addr *tpa,
+    int vlan_exist, uint16_t vlan_id)
 {
-	u_char pkt[ETH_HDR_LEN + ARP_HDR_LEN + ARP_ETHIP_LEN];
+	u_char pkt[ETH_HDR_LEN + ARP_HDR_LEN + ARP_ETHIP_LEN + vlan_exist * VLAN_TAG_LEN];
 
-	eth_pack_hdr(pkt, tha->addr_eth, sha->addr_eth, ETH_TYPE_ARP);
-	arp_pack_hdr_ethip(pkt + ETH_HDR_LEN, op, sha->addr_eth,
-	    spa->addr_ip, tha->addr_eth, tpa->addr_ip);
+	if( vlan_exist ) {
+	  eth_pack_hdr(pkt, tha->addr_eth, sha->addr_eth, ETH_TYPE_8021Q);
+          *((uint16_t *)&pkt[ETH_HDR_LEN])   = htons(vlan_id);
+          *((uint16_t *)&pkt[ETH_HDR_LEN+2]) = htons(ETH_TYPE_ARP);
+	} else {
+	  eth_pack_hdr(pkt, tha->addr_eth, sha->addr_eth, ETH_TYPE_ARP);
+	}
+
+	arp_pack_hdr_ethip(pkt + ETH_HDR_LEN + vlan_exist * VLAN_TAG_LEN,
+            op, sha->addr_eth, spa->addr_ip, tha->addr_eth, tpa->addr_ip);
 
 	if (op == ARP_OP_REQUEST) {
 		syslog(LOG_DEBUG, "%s: who-has %s tell %s", __func__,
@@ -286,11 +309,26 @@ arpd_recv_cb(u_char *u, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
 	struct arp_ethip *ethip;
 	struct arp_entry src;
 	struct addr pa;
+	uint16_t eth_type;
+	int vlan_exist;
+        uint16_t vlan_id;
 
-	if (pkthdr->caplen < ETH_HDR_LEN + ARP_HDR_LEN + ARP_ETHIP_LEN)
+	eth_type = ntohs( ((struct eth_hdr *) pkt)->eth_type );
+
+	switch(eth_type) {
+	    case ETH_TYPE_ARP:
+		vlan_exist = 0;
+		break;
+	    case ETH_TYPE_8021Q:
+		vlan_exist = 1;
+                vlan_id = ntohs(*((uint16_t *)&pkt[ETH_HDR_LEN]));
+		break;
+	}
+
+	if (pkthdr->caplen < ETH_HDR_LEN + ARP_HDR_LEN + ARP_ETHIP_LEN + vlan_exist * VLAN_TAG_LEN)
 		return;
 
-	arp = (struct arp_hdr *)(pkt + ETH_HDR_LEN);	/* XXX */
+	arp = (struct arp_hdr *)(pkt + ETH_HDR_LEN + vlan_exist * VLAN_TAG_LEN);
 	ethip = (struct arp_ethip *)(arp + 1);
 
 	addr_pack(&src.arp_ha, ADDR_TYPE_ETH, ETH_ADDR_BITS,
@@ -306,7 +344,7 @@ arpd_recv_cb(u_char *u, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
 
 			arpd_send(arpd_eth, ARP_OP_REPLY,
 			    &arpd_ifent.intf_link_addr, &pa,
-			    &src.arp_ha, &src.arp_pa);
+			    &src.arp_ha, &src.arp_pa, vlan_exist, vlan_id);
 		break;
 
 	case ARP_OP_REPLY:
@@ -347,14 +385,18 @@ main(int argc, char *argv[])
 {
 	struct event recv_ev;
 	char *dev;
-	int c, debug;
+	int c, debug, vlan_support;
 	FILE *fp;
 
 	dev = NULL;
 	debug = 0;
+	vlan_support = 0;
 
-	while ((c = getopt(argc, argv, "di:h?")) != -1) {
+	while ((c = getopt(argc, argv, "qdi:h?")) != -1) {
 		switch (c) {
+		case 'q':
+			vlan_support = 1;
+			break;
 		case 'd':
 			debug = 1;
 			break;
@@ -370,9 +412,9 @@ main(int argc, char *argv[])
 	argv += optind;
 
 	if (argc == 0)
-		arpd_init(dev, 0, NULL);
+		arpd_init(dev, 0, NULL, vlan_support);
 	else
-		arpd_init(dev, argc, argv);
+		arpd_init(dev, argc, argv, vlan_support);
 
 	if ((fp = fopen(PIDFILE, "w")) == NULL)
 		err(1, "fopen");

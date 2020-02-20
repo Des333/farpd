@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <bsd/string.h>
 
 #include <pcap.h>
 
@@ -160,6 +161,7 @@ arpd_init(char *dev, int naddresses, char **addresses)
 	struct bpf_program fcode;
 	char filter[1024], ebuf[PCAP_ERRBUF_SIZE], *dst;
 	intf_t *intf;
+        pcap_if_t *interfaces;
 
 	dst = arpd_expandips(naddresses, addresses);
 
@@ -170,8 +172,9 @@ arpd_init(char *dev, int naddresses, char **addresses)
 		err(1, "intf_open");
 
 	if (dev == NULL) {
-		if ((dev = pcap_lookupdev(ebuf)) == NULL)
-			errx(1, "pcap_lookupdev: %s", ebuf);
+                if (pcap_findalldevs(&interfaces, ebuf) == -1)
+			errx(1, "pcap_findalldevs: %s", ebuf);
+                dev = interfaces->name;
 	}
 	arpd_ifent.intf_len = sizeof(arpd_ifent);
 	strncpy(arpd_ifent.intf_name, dev, sizeof(arpd_ifent.intf_name) - 1);
@@ -246,6 +249,7 @@ arpd_send(eth_t *eth, int op,
 		syslog(LOG_ERR, "couldn't send packet: %m");
 }
 
+#if 0
 static int
 arpd_lookup(struct addr *addr)
 {
@@ -270,6 +274,7 @@ arpd_lookup(struct addr *addr)
 	}
 	return (error);
 }
+#endif
 
 static void
 arpd_recv_cb(u_char *u, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
@@ -277,7 +282,6 @@ arpd_recv_cb(u_char *u, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
 	struct arp_hdr *arp;
 	struct arp_ethip *ethip;
 	struct arp_entry src;
-	struct timeval tv;
 	struct addr pa;
 
 	if (pkthdr->caplen < ETH_HDR_LEN + ARP_HDR_LEN + ARP_ETHIP_LEN)
